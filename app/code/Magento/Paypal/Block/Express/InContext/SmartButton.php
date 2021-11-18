@@ -7,14 +7,16 @@ declare(strict_types=1);
 
 namespace Magento\Paypal\Block\Express\InContext;
 
+use Magento\Catalog\Block\ShortcutInterface;
+use Magento\Checkout\Model\Session;
+use Magento\Framework\Serialize\SerializerInterface;
+use Magento\Framework\UrlInterface;
+use Magento\Framework\View\Element\Template;
+use Magento\Framework\View\Element\Template\Context;
+use Magento\Payment\Model\MethodInterface;
 use Magento\Paypal\Model\Config;
 use Magento\Paypal\Model\ConfigFactory;
-use Magento\Framework\View\Element\Template;
-use Magento\Catalog\Block\ShortcutInterface;
-use Magento\Framework\View\Element\Template\Context;
-use Magento\Framework\Serialize\SerializerInterface;
 use Magento\Paypal\Model\SmartButtonConfig;
-use Magento\Framework\UrlInterface;
 
 /**
  * Class Button
@@ -22,34 +24,34 @@ use Magento\Framework\UrlInterface;
 class SmartButton extends Template implements ShortcutInterface
 {
     private const ALIAS_ELEMENT_INDEX = 'alias';
-
+    /** @var Session */
+    protected $session;
+    /** @var MethodInterface */
+    protected $payment;
     /**
      * @var Config
      */
     private $config;
-
     /**
      * @var SerializerInterface
      */
     private $serializer;
-
     /**
      * @var SmartButtonConfig
      */
     private $smartButtonConfig;
-
     /**
      * @var UrlInterface
      */
     private $urlBuilder;
 
     /**
-     * @param Context $context
-     * @param ConfigFactory $configFactory
-     * @param SerializerInterface $serializer
-     * @param SmartButtonConfig $smartButtonConfig
-     * @param UrlInterface $urlBuilder
-     * @param array $data
+     * @param  Context             $context
+     * @param  ConfigFactory       $configFactory
+     * @param  SerializerInterface $serializer
+     * @param  SmartButtonConfig   $smartButtonConfig
+     * @param  UrlInterface        $urlBuilder
+     * @param  array               $data
      */
     public function __construct(
         Context $context,
@@ -57,6 +59,8 @@ class SmartButton extends Template implements ShortcutInterface
         SerializerInterface $serializer,
         SmartButtonConfig $smartButtonConfig,
         UrlInterface $urlBuilder,
+        Session $session,
+        MethodInterface $payment,
         array $data = []
     ) {
         parent::__construct($context, $data);
@@ -66,6 +70,8 @@ class SmartButton extends Template implements ShortcutInterface
         $this->serializer = $serializer;
         $this->smartButtonConfig = $smartButtonConfig;
         $this->urlBuilder = $urlBuilder;
+        $this->session = $session;
+        $this->payment = $payment;
     }
 
     /**
@@ -76,9 +82,10 @@ class SmartButton extends Template implements ShortcutInterface
     private function shouldRender(): bool
     {
         $isInCatalog = $this->getIsInCatalogProduct();
-        $isInContext = (bool)(int) $this->config->getValue('in_context');
+        $isInContext = (bool)(int)$this->config->getValue('in_context');
+        $isAvailable = $this->payment->isAvailable($this->session->getQuote());
 
-        return ($isInContext && $isInCatalog);
+        return ($isInContext && $isInCatalog && $isAvailable);
     }
 
     /**
@@ -111,8 +118,8 @@ class SmartButton extends Template implements ShortcutInterface
     public function getJsInitParams(): string
     {
         $clientConfig = [
-            'button' => 1,
-            'getTokenUrl' => $this->urlBuilder->getUrl(
+            'button'         => 1,
+            'getTokenUrl'    => $this->urlBuilder->getUrl(
                 'paypal/express/getTokenData',
                 ['_secure' => $this->getRequest()->isSecure()]
             ),
@@ -120,17 +127,17 @@ class SmartButton extends Template implements ShortcutInterface
                 'paypal/express/onAuthorization',
                 ['_secure' => $this->getRequest()->isSecure()]
             ),
-            'onCancelUrl' => $this->urlBuilder->getUrl(
+            'onCancelUrl'    => $this->urlBuilder->getUrl(
                 'paypal/express/cancel',
                 ['_secure' => $this->getRequest()->isSecure()]
-            )
+            ),
         ];
         $smartButtonsConfig = $this->smartButtonConfig->getConfig('product');
         $clientConfig = array_replace_recursive($clientConfig, $smartButtonsConfig);
         $config = [
             'Magento_Paypal/js/in-context/product-express-checkout' => [
-                'clientConfig' => $clientConfig
-            ]
+                'clientConfig' => $clientConfig,
+            ],
         ];
 
         return $this->serializer->serialize($config);
